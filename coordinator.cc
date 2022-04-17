@@ -10,7 +10,7 @@
 #include "client.h"
 
 #include <google/protobuf/util/time_util.h>
-
+#include "sns.grpc.pb.h"
 #include "coordinator.grpc.pb.h"
 using grpc::Channel;
 using grpc::ClientContext;
@@ -24,6 +24,11 @@ using grpc::ServerReader;
 using grpc::ServerReaderWriter;
 using grpc::ServerWriter;
 using grpc::Status;
+using csce438::Message;
+using csce438::ListReply;
+using csce438::Request;
+using csce438::Reply;
+using csce438::SNSService;
 using snsCoordinator::SNSCoordinator;
 using snsCoordinator::ServerType;
 using snsCoordinator::RequesterType;
@@ -44,15 +49,17 @@ std::vector<server_struct> master_table(3);
 std::vector<server_struct> slave_table(3);
 std::vector<server_struct> synchronizer_table(3);
 
-//Hashmap for ids and ports MAKE THE KEYS STRUCTS
+//Hashmap for ids and ports
 std::map<std::string, bool> client_ids; 
 std::map<std::string, bool> server_ids;
 std::map<std::string, bool> ports;
 
-//var for the latest timestamp
-
+//table indices
 int master_index = 0;
 int slave_index = 0;
+
+//used to send master server a notification that it has a slave
+std::unique_ptr<SNSService::Stub> sns_stub_;
 
 int get_table_index (std::string id, std::string type){
     if (type == "master"){
@@ -74,16 +81,18 @@ int get_table_index (std::string id, std::string type){
 void thread_function(int index, std::string type){
     if (type == "master"){
         while(TimeUtil::TimestampToSeconds(TimeUtil::TimeTToTimestamp(time(NULL))) - master_table[index].heartbeatstamp <= 11){
-            std::cout << "master wait " << TimeUtil::TimestampToSeconds(TimeUtil::TimeTToTimestamp(time(NULL))) - master_table[index].heartbeatstamp << std::endl;
+            //std::cout << "master wait " << TimeUtil::TimestampToSeconds(TimeUtil::TimeTToTimestamp(time(NULL))) - master_table[index].heartbeatstamp << std::endl;
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
         server_struct s;
         master_table[index] = s;
         std::cout << "Master server closed!" << std::endl;
         //transfer data to slave
+        
+
     } else if (type == "slave"){
         while(TimeUtil::TimestampToSeconds(TimeUtil::TimeTToTimestamp(time(NULL))) - slave_table[index].heartbeatstamp <= 11){
-            std::cout << "slave wait " << TimeUtil::TimestampToSeconds(TimeUtil::TimeTToTimestamp(time(NULL))) - master_table[index].heartbeatstamp << std::endl;
+            //std::cout << "slave wait " << TimeUtil::TimestampToSeconds(TimeUtil::TimeTToTimestamp(time(NULL))) - master_table[index].heartbeatstamp << std::endl;
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
         server_struct s;
@@ -100,6 +109,20 @@ std::string get_server_port(int client_id){ //MAKE CID INT SINCE WE ARE COMPUTIN
         return slave_table[server_id].port_num;
     }
     return "";
+}
+
+void send_slave_to_master(int index){
+    std::string port = master_table[index].port_num;
+    std::string login_info = "0.0.0.0:" + port;
+    sns_stub_ = std::unique_ptr<SNSService::Stub>(SNSService::NewStub(
+               grpc::CreateChannel(
+                    login_info, grpc::InsecureChannelCredentials())));
+    ClientContext c;
+    Reply r;
+    Message m;
+    m.set_msg(slave_table[index].port_num);
+    m.set_id(slave_table[index].server_id);
+    sns_stub_->RecSlave(&c, m, &r);
 }
 
 class SNSCoordinatorImpl final : public SNSCoordinator::Service {
@@ -151,6 +174,10 @@ class SNSCoordinatorImpl final : public SNSCoordinator::Service {
                         slave_table[slave_index].server_id = server_id;
                         slave_table[slave_index].port_num = port_num;
                         slave_table[slave_index].type = server_type;
+                        //notify master server
+                        if (master_table[slave_index].active == true){
+                            send_slave_to_master(slave_index);
+                        }
                         reply->set_msg("Slave server ID:" + server_id + " connected to cluster #" + std::to_string(slave_index));
                         slave_index++;
                     } else {

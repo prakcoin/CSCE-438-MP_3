@@ -86,11 +86,34 @@ struct Client {
   }
 };
 
+struct slave_server_info{
+  std::string id;
+  std::string port;
+  bool active;
+};
+
 //Vector that stores every client that has been created
 std::vector<Client> client_db;
 
 //stub to connect to the coordinator
 std::unique_ptr<SNSCoordinator::Stub> coordinator_stub_;
+
+//singular slave server struct
+slave_server_info ss_struct;
+
+/*
+//signal handler
+void signal_catcher(int signum){
+  CoordRequest creq;
+  creq.set_requester(99);
+  std::string client_ports;
+  for (int i = 0; i < client_db.size(); i++){
+    client_ports += client_db[i].
+  }
+  creq.set_port_number();
+  coordinator_stub_->
+}
+*/
 
 //Helper function used to find a Client object given its ID
 int find_user(std::string id){
@@ -183,10 +206,17 @@ class SNSServiceImpl final : public SNSService::Service {
         reply->set_msg("You have already joined");
       else{
         std::string msg = "Welcome Back UID:" + user->id;
-	reply->set_msg(msg);
+	      reply->set_msg(msg);
         user->connected = true;
       }
     }
+    return Status::OK;
+  }
+
+  Status RecSlave(ServerContext* context, const Message* message, Reply* reply){
+    ss_struct.port = message->msg();
+    ss_struct.id = message->id();
+    std::cout << "Slave server with ID#" << ss_struct.id << " and port " << ss_struct.port << " connected!" << std::endl;
     return Status::OK;
   }
 
@@ -278,6 +308,7 @@ int main(int argc, char** argv) {
   std::string id = "1";
   std::string type = "master";
   int opt = 0;
+  //signal(SIGINT, signal_catcher);
   //cip, cp, p, id, t
   while ((opt = getopt(argc, argv, "c:o:p:i:t:")) != -1){
     switch(opt) {

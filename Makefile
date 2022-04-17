@@ -17,9 +17,9 @@ PROTOC = protoc
 GRPC_CPP_PLUGIN = grpc_cpp_plugin
 GRPC_CPP_PLUGIN_PATH ?= `which $(GRPC_CPP_PLUGIN)`
 
-all: system-check coordinator tsc tsd 
+all: system-check tsc tsd coordinator
 
-coordinator: coordinator.pb.o coordinator.grpc.pb.o coordinator.o
+coordinator: coordinator.pb.o coordinator.grpc.pb.o coordinator.o sns.pb.o sns.grpc.pb.o
 	$(CXX) $^ $(LDFLAGS) -g -o $@
 
 tsc: coordinator.grpc.pb.o coordinator.pb.o sns.pb.o sns.grpc.pb.o tsc.o

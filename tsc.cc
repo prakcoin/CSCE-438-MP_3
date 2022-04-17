@@ -305,34 +305,6 @@ IReply Client::Follow(const std::string& id2) {
     return ire;
 }
 
-/*
-IReply Client::UnFollow(const std::string& username2) { //REMOVE 
-    Request request;
-
-    request.set_username(username);
-    request.add_arguments(username2);
-
-    Reply reply;
-
-    ClientContext context;
-
-    Status status = stub_->UnFollow(&context, request, &reply);
-    IReply ire;
-    ire.grpc_status = status;
-    if (reply.msg() == "unknown follower username") {
-        ire.comm_status = FAILURE_INVALID_USERNAME;
-    } else if (reply.msg() == "you are not follower") {
-        ire.comm_status = FAILURE_INVALID_USERNAME;
-    } else if (reply.msg() == "UnFollow Successful") {
-        ire.comm_status = SUCCESS;
-    } else {
-        ire.comm_status = FAILURE_UNKNOWN;
-    }
-
-    return ire;
-}
-*/
-
 IReply Client::Login() {
     Request request;
     request.set_id(client_id);
