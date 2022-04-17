@@ -1,12 +1,15 @@
 #include <iostream>
 #include <memory>
 #include <thread>
+#include <chrono>
 #include <vector>
 #include <map>
 #include <string>
 #include <unistd.h>
 #include <grpc++/grpc++.h>
 #include "client.h"
+
+#include <google/protobuf/util/time_util.h>
 
 #include "coordinator.grpc.pb.h"
 using grpc::Channel;
@@ -27,11 +30,13 @@ using snsCoordinator::RequesterType;
 using snsCoordinator::CoordRequest;
 using snsCoordinator::CoordReply;
 using snsCoordinator::HeartBeat;
+using google::protobuf::util::TimeUtil;
 
 struct server_struct{
     std::string server_id;
     std::string port_num;
     std::string type;
+    int64_t heartbeatstamp;
     bool active = false;
 };
 
@@ -39,13 +44,53 @@ std::vector<server_struct> master_table(3);
 std::vector<server_struct> slave_table(3);
 std::vector<server_struct> synchronizer_table(3);
 
-//Hashmap for ids and ports
-std::map<std::string, bool> client_ids;
+//Hashmap for ids and ports MAKE THE KEYS STRUCTS
+std::map<std::string, bool> client_ids; 
 std::map<std::string, bool> server_ids;
 std::map<std::string, bool> ports;
 
+//var for the latest timestamp
+
 int master_index = 0;
 int slave_index = 0;
+
+int get_table_index (std::string id, std::string type){
+    if (type == "master"){
+        for (int i = 0; i < master_table.size(); i++){
+            if (id == master_table[i].server_id){
+                return i;
+            }
+        }
+    } else if (type == "slave"){
+        for (int i = 0; i < slave_table.size(); i++){
+            if (id == slave_table[i].server_id){
+                return i;
+            }
+        }
+    }
+    return -1;
+}
+
+void thread_function(int index, std::string type){
+    if (type == "master"){
+        while(TimeUtil::TimestampToSeconds(TimeUtil::TimeTToTimestamp(time(NULL))) - master_table[index].heartbeatstamp <= 11){
+            std::cout << "master wait " << TimeUtil::TimestampToSeconds(TimeUtil::TimeTToTimestamp(time(NULL))) - master_table[index].heartbeatstamp << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        server_struct s;
+        master_table[index] = s;
+        std::cout << "Master server closed!" << std::endl;
+        //transfer data to slave
+    } else if (type == "slave"){
+        while(TimeUtil::TimestampToSeconds(TimeUtil::TimeTToTimestamp(time(NULL))) - slave_table[index].heartbeatstamp <= 11){
+            std::cout << "slave wait " << TimeUtil::TimestampToSeconds(TimeUtil::TimeTToTimestamp(time(NULL))) - master_table[index].heartbeatstamp << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        server_struct s;
+        slave_table[index] = s;
+        std::cout << "Slave server closed!" << std::endl;
+    }
+}
 
 std::string get_server_port(int client_id){ //MAKE CID INT SINCE WE ARE COMPUTING MOD
     int server_id = (client_id % 3) + 1;
@@ -91,7 +136,6 @@ class SNSCoordinatorImpl final : public SNSCoordinator::Service {
                         master_table[master_index].server_id = server_id;
                         master_table[master_index].port_num = port_num;
                         master_table[master_index].type = server_type;
-                        master_table[master_index].active = true;
                         reply->set_msg("Master server ID:" + server_id + " connected to cluster #" + std::to_string(master_index));
                         master_index++;
                     } else {
@@ -107,7 +151,6 @@ class SNSCoordinatorImpl final : public SNSCoordinator::Service {
                         slave_table[slave_index].server_id = server_id;
                         slave_table[slave_index].port_num = port_num;
                         slave_table[slave_index].type = server_type;
-                        slave_table[slave_index].active = true;
                         reply->set_msg("Slave server ID:" + server_id + " connected to cluster #" + std::to_string(slave_index));
                         slave_index++;
                     } else {
@@ -121,6 +164,36 @@ class SNSCoordinatorImpl final : public SNSCoordinator::Service {
         } else if (requester == 2) { //synchronizer
 
         }
+        return Status::OK;
+    }
+
+    //heartbeat
+    Status ServerCommunicate(ServerContext* context, const HeartBeat* heart, CoordReply* reply){
+        google::protobuf::Timestamp t = TimeUtil::SecondsToTimestamp(heart->timestamp());
+        std::string server_id = heart->sid();
+        std::string server_type = heart->s_type();
+        int64_t timestamp_int = TimeUtil::TimestampToSeconds(t);
+        int table_index = get_table_index(server_id, server_type);
+
+        if (server_type == "master"){ 
+            if (master_table[table_index].heartbeatstamp == 0 && master_table[table_index].active == false){
+                master_table[table_index].active = true; 
+                //start a thread
+                std::thread t(thread_function, table_index, server_type);
+                t.detach();
+            }
+            master_table[table_index].heartbeatstamp = timestamp_int;
+        } else if (server_type == "slave"){
+            if (slave_table[table_index].heartbeatstamp == 0 && slave_table[table_index].active == false){
+                slave_table[table_index].active = true; 
+                //start a thread
+                std::thread t(thread_function, table_index, server_type);
+                t.detach();
+            }
+            slave_table[table_index].heartbeatstamp = timestamp_int;
+        }
+
+        std::cout << "Server Type:'" << server_type << "' ID#" << server_id << " sent heartbeat: " << /*TimeUtil::ToString(t)*/ timestamp_int << std::endl; // debug
         return Status::OK;
     }
 };

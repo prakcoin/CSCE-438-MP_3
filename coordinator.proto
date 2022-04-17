@@ -2,13 +2,13 @@ syntax = "proto3";
 
 package snsCoordinator;
 
-import "google/protobuf/timestamp.proto";
+//import "google/protobuf/timestamp.proto";
 
 service SNSCoordinator{
     
     rpc Handle (CoordRequest) returns (CoordReply) {}
     // Bidirectional Communication to check on server interaction
-    rpc ServerCommunicate (stream HeartBeat) returns (stream HeartBeat) {}
+    rpc ServerCommunicate (HeartBeat) returns (CoordReply) {}
 }
 
 enum ServerType{
@@ -41,9 +41,9 @@ message CoordReply{
 
 message HeartBeat{
     // id of the server
-    int32 sid = 1;
+    string sid = 1;
     // type of the server
-    ServerType s_type = 2;
+    string s_type = 2;
     //Time the message was sent
-    google.protobuf.Timestamp timestamp = 3;
+    int64 timestamp = 3;
 }

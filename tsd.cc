@@ -39,6 +39,8 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <chrono>
+#include <thread>
 #include <string>
 #include <stdlib.h>
 #include <unistd.h>
@@ -70,6 +72,7 @@ using snsCoordinator::RequesterType;
 using snsCoordinator::CoordRequest;
 using snsCoordinator::CoordReply;
 using snsCoordinator::HeartBeat;
+using google::protobuf::util::TimeUtil;
 
 struct Client {
   std::string id;
@@ -111,6 +114,23 @@ std::string Handle(std::string server_id, std::string type, std::string port) {
 
     Status status = coordinator_stub_->Handle(&context, request, &reply);
     return reply.msg();
+}
+
+void thread_heartbeat_func(std::string server_id, std::string server_type){
+  while(1){
+    HeartBeat heart;
+    heart.set_sid(server_id);
+    heart.set_s_type(server_type);
+    Timestamp timestamp;
+    timestamp.set_seconds(time(NULL));
+    int64_t time_num = TimeUtil::TimestampToSeconds(timestamp);
+    heart.set_timestamp(time_num);
+    CoordReply reply;
+    ClientContext context;
+
+    Status status = coordinator_stub_->ServerCommunicate(&context, heart, &reply);
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+  }
 }
 
 class SNSServiceImpl final : public SNSService::Service {
@@ -285,10 +305,12 @@ int main(int argc, char** argv) {
     std::cout << "Connection from server to coordinator failed: " + handle_msg << std::endl;
     exit(1);
   }
+  //thread
+  std::thread hb(thread_heartbeat_func, id, type);
   std::cout << handle_msg << std::endl;
   //if all slots are taken for table requested (master/slave), return with error
   //
   RunServer(port);
-
+  hb.join();
   return 0;
 }
