@@ -24,7 +24,7 @@ enum RequesterType{
 
 message CoordRequest{
     // type of requester CHANGE TO ENUM LATER
-    // Three types of requester: server (master/slave), client, synchronizer, 99 for client assign
+    // Three types of requester: server (master/slave), client, synchronizer, 99 for 
     int32 requester = 1;
     // message with their port number
     string port_number = 2;

@@ -127,6 +127,12 @@ int find_user(std::string id){
 }
 
 std::string Handle(std::string server_id, std::string type, std::string port) {
+    if (type == "slave"){
+      ss_struct.id = server_id;
+      ss_struct.port = port;
+      ss_struct.active = true;
+    }
+
     CoordRequest request;
     request.set_id(server_id);
     request.set_requester(1);
@@ -196,18 +202,27 @@ class SNSServiceImpl final : public SNSService::Service {
     std::string id = request->id();
     int user_index = find_user(id);
     if(user_index < 0){
-      c.id = id;
-      client_db.push_back(c);
-      reply->set_msg("Login Successful!");
+      if (ss_struct.active){
+        c.id = id;
+        client_db.push_back(c);
+        std::string msg = ss_struct.port;
+        reply->set_msg(msg);
+      } else {
+        reply->set_msg("No slave server associated. Please connect to a different cluster.");
+      }
     }
     else{ 
       Client *user = &client_db[user_index];
       if(user->connected)
         reply->set_msg("You have already joined");
       else{
-        std::string msg = "Welcome Back UID:" + user->id;
-	      reply->set_msg(msg);
-        user->connected = true;
+        if (ss_struct.active){
+          std::string msg = ss_struct.port;
+	        reply->set_msg(msg);
+          user->connected = true;
+        } else {
+          reply->set_msg("No slave server associated. Please connect to a different cluster.");
+        }
       }
     }
     return Status::OK;
@@ -216,6 +231,7 @@ class SNSServiceImpl final : public SNSService::Service {
   Status RecSlave(ServerContext* context, const Message* message, Reply* reply){
     ss_struct.port = message->msg();
     ss_struct.id = message->id();
+    ss_struct.active = true;
     std::cout << "Slave server with ID#" << ss_struct.id << " and port " << ss_struct.port << " connected!" << std::endl;
     return Status::OK;
   }

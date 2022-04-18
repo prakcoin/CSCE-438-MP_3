@@ -102,7 +102,7 @@ void thread_function(int index, std::string type){
 }
 
 std::string get_server_port(int client_id){ //MAKE CID INT SINCE WE ARE COMPUTING MOD
-    int server_id = (client_id % 3) + 1;
+    int server_id = (client_id % 3);
     if (master_table[server_id].active == true){
         return master_table[server_id].port_num;
     } else if (slave_table[server_id].active == true){
@@ -190,6 +190,17 @@ class SNSCoordinatorImpl final : public SNSCoordinator::Service {
 
         } else if (requester == 2) { //synchronizer
 
+        } else if (requester == 99){
+            std::string slave_port = request->port_number();
+            for (int i = 0; i < slave_table.size(); i++){
+                if (slave_table[i].port_num == slave_port){        
+                    if (master_table[i].active == false){
+                        reply->set_msg("false");
+                    } else {
+                        reply->set_msg("true");
+                    }
+                }
+            }
         }
         return Status::OK;
     }

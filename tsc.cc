@@ -1,6 +1,7 @@
 #include <iostream>
 #include <memory>
 #include <thread>
+#include <chrono>
 #include <vector>
 #include <string>
 #include <unistd.h>
@@ -38,6 +39,8 @@ Message MakeMessage(const std::string& id, const std::string& msg) {
     return m;
 }
 
+std::string slave_port = "";
+
 class Client : public IClient
 {
     public:
@@ -64,6 +67,7 @@ class Client : public IClient
         IReply List();
         IReply Follow(const std::string& username2);
         IReply UnFollow(const std::string& username2);
+        void thread_check_master_active();
         void Timeline(const std::string& username);
 
 
@@ -118,7 +122,6 @@ int Client::connectTo()
     if(!hire.grpc_status.ok()) {
         return -1;
     }
-
     std::string login_info = "0.0.0.0:" + hire.serverinfo;
     sns_stub_ = std::unique_ptr<SNSService::Stub>(SNSService::NewStub(
                grpc::CreateChannel(
@@ -128,9 +131,10 @@ int Client::connectTo()
     if(!ire.grpc_status.ok()) {
         return -1;
     }
+    std::thread slave_switch_thread(&Client::thread_check_master_active, this);
+    slave_switch_thread.detach();
     return 1;
 }
-
 
 IReply Client::Handle() {
     CoordRequest request;
@@ -312,15 +316,38 @@ IReply Client::Login() {
     ClientContext context;
 
     Status status = sns_stub_->Login(&context, request, &reply);
-
     IReply ire;
     ire.grpc_status = status;
     if (reply.msg() == "You have already joined") {
         ire.comm_status = FAILURE_ALREADY_EXISTS;
+    } else if (reply.msg() == "No slave server associated. Please connect to a different cluster."){ 
+        ire.comm_status = FAILURE_INVALID;
     } else {
+        slave_port = reply.msg();
         ire.comm_status = SUCCESS;
     }
     return ire;
+}
+
+void Client::thread_check_master_active(){
+    while (1){
+        CoordReply r;
+        ClientContext context;
+        CoordRequest cr;
+        cr.set_requester(99);
+        cr.set_port_number(slave_port);
+        coordinator_stub_->Handle(&context, cr, &r);
+        if (r.msg() == "false"){
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(1));  
+    }
+    std::string login_info = "0.0.0.0:" + slave_port;
+    sns_stub_ = std::unique_ptr<SNSService::Stub>(SNSService::NewStub(
+               grpc::CreateChannel(
+                    login_info, grpc::InsecureChannelCredentials())));
+    std::cout << std::endl << "Redirecting to slave server at port " << slave_port << "..." << std::endl;
+    IReply ire = Login();
 }
 
 void Client::Timeline(const std::string& username) {
