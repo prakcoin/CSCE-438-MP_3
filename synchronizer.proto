@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package snsSynchronizer;
+
+//import "google/protobuf/timestamp.proto";
+
+service SNSSynchronizer{
+    
+    rpc FollowerSynchronizer (SyncRequest) returns (SyncReply) {}
+}
+
+message SyncRequest{
+    // type of requester 
+    // Three types of requester: server (master/slave), client, synchronizer, 99 for 
+    int32 requester = 1;
+    // message with their port number
+    string port_number = 2;
+    // the id (client or server) of the request
+    string id = 3;
+    // the type of server (master or slave) 
+    string server_type = 4;
+    // message if needed
+    string msg = 5;
+}
+
+message SyncReply{
+    string msg = 1;
+}
+

@@ -10,27 +10,15 @@ service SNSCoordinator{
     rpc ServerCommunicate (HeartBeat) returns (CoordReply) {}
 }
 
-enum ServerType{
-    MASTER = 0;
-    SLAVE = 1;
-    SYNCHRONIZER = 3;
-    COORDINATOR = 4;
-}
-
-enum RequesterType{
-    CLIENT = 0;
-    SERVER = 1;
-}
-
 message CoordRequest{
-    // type of requester CHANGE TO ENUM LATER
-    // Three types of requester: server (master/slave), client, synchronizer, 99 for 
+    // type of requester 
+    // Three types of requester: server (master/slave), client, synchronizer
     int32 requester = 1;
     // message with their port number
     string port_number = 2;
     // the id (client or server) of the request
     string id = 3;
-    // the type of server (master or slave) CHANGE TO ENUM LATER
+    // the type of server (master or slave) 
     string server_type = 4;
 }
 

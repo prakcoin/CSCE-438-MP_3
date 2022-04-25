@@ -10,6 +10,7 @@
 
 #include "sns.grpc.pb.h"
 #include "coordinator.grpc.pb.h"
+#include "synchronizer.grpc.pb.h"
 using grpc::Channel;
 using grpc::ClientContext;
 using grpc::ClientReader;
@@ -22,11 +23,12 @@ using csce438::Request;
 using csce438::Reply;
 using csce438::SNSService;
 using snsCoordinator::SNSCoordinator;
-using snsCoordinator::ServerType;
-using snsCoordinator::RequesterType;
 using snsCoordinator::CoordRequest;
 using snsCoordinator::CoordReply;
 using snsCoordinator::HeartBeat;
+using snsSynchronizer::SNSSynchronizer;
+using snsSynchronizer::SyncReply;
+using snsSynchronizer::SyncRequest;
 
 Message MakeMessage(const std::string& id, const std::string& msg) {
     Message m;
@@ -131,6 +133,7 @@ int Client::connectTo()
     if(!ire.grpc_status.ok()) {
         return -1;
     }
+
     std::thread slave_switch_thread(&Client::thread_check_master_active, this);
     slave_switch_thread.detach();
     return 1;
@@ -294,7 +297,7 @@ IReply Client::Follow(const std::string& id2) {
 
     Reply reply;
     ClientContext context;
-
+    
     Status status = sns_stub_->Follow(&context, request, &reply);
     IReply ire; ire.grpc_status = status;
     if (reply.msg() == "Follow Failed -- Invalid ID") {
@@ -324,6 +327,7 @@ IReply Client::Login() {
         ire.comm_status = FAILURE_INVALID;
     } else {
         slave_port = reply.msg();
+        std::cout << "Connected to cluster #" << (std::stoi(client_id) % 3) + 1 << std::endl;  
         ire.comm_status = SUCCESS;
     }
     return ire;

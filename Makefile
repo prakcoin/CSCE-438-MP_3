@@ -3,7 +3,6 @@ SYSTEM ?= $(HOST_SYSTEM)
 CXX = g++
 CPPFLAGS += -I$(MY_INSTALL_DIR)/include -pthread
 CXXFLAGS += -std=c++11
-CFLAGS += `pkg-config --cflags protobuf grpc` #I ADDED
 ifeq ($(SYSTEM),Darwin)
 LDFLAGS += -L$(MY_INSTALL_DIR)/lib `pkg-config --libs protobuf grpc++ grpc`\
            -lgrpc++_reflection\
@@ -17,15 +16,18 @@ PROTOC = protoc
 GRPC_CPP_PLUGIN = grpc_cpp_plugin
 GRPC_CPP_PLUGIN_PATH ?= `which $(GRPC_CPP_PLUGIN)`
 
-all: system-check tsc tsd coordinator
+all: system-check synchronizer tsc tsd coordinator
 
 coordinator: coordinator.pb.o coordinator.grpc.pb.o coordinator.o sns.pb.o sns.grpc.pb.o
 	$(CXX) $^ $(LDFLAGS) -g -o $@
 
-tsc: coordinator.grpc.pb.o coordinator.pb.o sns.pb.o sns.grpc.pb.o tsc.o
+tsc: coordinator.pb.o coordinator.grpc.pb.o sns.pb.o sns.grpc.pb.o tsc.o
 	$(CXX) $^ $(LDFLAGS) -g -o $@
 
-tsd: coordinator.grpc.pb.o coordinator.pb.o sns.pb.o sns.grpc.pb.o tsd.o
+tsd: coordinator.pb.o coordinator.grpc.pb.o sns.pb.o sns.grpc.pb.o tsd.o
+	$(CXX) $^ $(LDFLAGS) -g -o $@
+
+synchronizer: synchronizer.pb.o synchronizer.grpc.pb.o coordinator.grpc.pb.o coordinator.pb.o sns.pb.o sns.grpc.pb.o synchronizer.o
 	$(CXX) $^ $(LDFLAGS) -g -o $@
 
 .PRECIOUS: %.grpc.pb.cc

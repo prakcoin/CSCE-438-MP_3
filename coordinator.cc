@@ -6,7 +6,9 @@
 #include <map>
 #include <string>
 #include <unistd.h>
+#include <fstream>
 #include <grpc++/grpc++.h>
+#include <sys/stat.h>
 #include "client.h"
 
 #include <google/protobuf/util/time_util.h>
@@ -30,8 +32,6 @@ using csce438::Request;
 using csce438::Reply;
 using csce438::SNSService;
 using snsCoordinator::SNSCoordinator;
-using snsCoordinator::ServerType;
-using snsCoordinator::RequesterType;
 using snsCoordinator::CoordRequest;
 using snsCoordinator::CoordReply;
 using snsCoordinator::HeartBeat;
@@ -47,16 +47,19 @@ struct server_struct{
 
 std::vector<server_struct> master_table(3);
 std::vector<server_struct> slave_table(3);
-std::vector<server_struct> synchronizer_table(3);
+std::vector<server_struct> sync_table(3);
 
 //Hashmap for ids and ports
-std::map<std::string, bool> client_ids; 
-std::map<std::string, bool> server_ids;
+std::map<std::string, int> client_ids; 
+std::map<std::string, bool> master_ids; 
+std::map<std::string, bool> slave_ids;
+std::map<std::string, bool> sync_ids;
 std::map<std::string, bool> ports;
 
 //table indices
 int master_index = 0;
 int slave_index = 0;
+int sync_index = 0;
 
 //used to send master server a notification that it has a slave
 std::unique_ptr<SNSService::Stub> sns_stub_;
@@ -76,6 +79,14 @@ int get_table_index (std::string id, std::string type){
         }
     }
     return -1;
+}
+
+void print_client_db(){
+    std::map<std::string, int>::iterator it = client_ids.begin();
+    while (it != client_ids.end()){
+        std::cout << it->first << " " << it->second << std::endl;
+        ++it;
+    }
 }
 
 void thread_function(int index, std::string type){
@@ -111,6 +122,14 @@ std::string get_server_port(int client_id){ //MAKE CID INT SINCE WE ARE COMPUTIN
     return "";
 }
 
+std::string get_sync_port(int client_id){ 
+    int sync_id = (client_id % 3);
+    if (sync_table[sync_id].active == true){
+        return sync_table[sync_id].port_num;
+    }
+    return "";
+}
+
 void send_slave_to_master(int index){
     std::string port = master_table[index].port_num;
     std::string login_info = "0.0.0.0:" + port;
@@ -135,7 +154,7 @@ class SNSCoordinatorImpl final : public SNSCoordinator::Service {
             std::string client_id = request->id();
             std::string server_port = get_server_port(stoi(client_id));
             if (client_ids.find(client_id) == client_ids.end()){ //check if client id is taken
-                client_ids[client_id] = true;
+                client_ids[client_id] = stoi(client_id) % 3;
                 if (!server_port.empty()){
                     reply->set_msg(server_port);
                 } else {
@@ -144,22 +163,24 @@ class SNSCoordinatorImpl final : public SNSCoordinator::Service {
             } else {
                 reply->set_msg("Error: Client ID taken.");
             }
+            //print_client_db(); //PRINTING THE CLIENTS
         } else if (requester == 1) { //server
             std::string port_num = request->port_number();
             std::string server_id = request->id();
             std::string server_type = request->server_type();
             if (ports.find(port_num) != ports.end()){
                  reply->set_msg("Error: Server Port taken.");
+                 return Status::OK;
             }
             ports[port_num] = true;
             if (server_type == "master"){
                 if (master_index <= 2){
-                    if (server_ids.find(server_id) == server_ids.end()){
-                        server_ids[server_id] = true;
+                    if (master_ids.find(server_id) == master_ids.end()){
+                        master_ids[server_id] = true;
                         master_table[master_index].server_id = server_id;
                         master_table[master_index].port_num = port_num;
                         master_table[master_index].type = server_type;
-                        reply->set_msg("Master server ID:" + server_id + " connected to cluster #" + std::to_string(master_index));
+                        reply->set_msg("Master server ID:" + server_id + " connected to cluster #" + std::to_string(master_index + 1));
                         master_index++;
                     } else {
                         reply->set_msg("Error: Server ID taken.");
@@ -169,8 +190,8 @@ class SNSCoordinatorImpl final : public SNSCoordinator::Service {
                 }               
             } else if (server_type == "slave"){
                 if (slave_index <= 2){
-                    if (server_ids.find(server_id) == server_ids.end()){
-                        server_ids[server_id] = true;
+                    if (slave_ids.find(server_id) == slave_ids.end()){
+                        slave_ids[server_id] = true;
                         slave_table[slave_index].server_id = server_id;
                         slave_table[slave_index].port_num = port_num;
                         slave_table[slave_index].type = server_type;
@@ -178,7 +199,7 @@ class SNSCoordinatorImpl final : public SNSCoordinator::Service {
                         if (master_table[slave_index].active == true){
                             send_slave_to_master(slave_index);
                         }
-                        reply->set_msg("Slave server ID:" + server_id + " connected to cluster #" + std::to_string(slave_index));
+                        reply->set_msg("Slave server ID:" + server_id + " connected to cluster #" + std::to_string(slave_index + 1));
                         slave_index++;
                     } else {
                         reply->set_msg("Error: Server ID taken.");
@@ -189,7 +210,42 @@ class SNSCoordinatorImpl final : public SNSCoordinator::Service {
             }
 
         } else if (requester == 2) { //synchronizer
-
+            if (sync_index <= 2){
+                std::string sync_id = request->id();
+                std::string sync_port = request->port_number();
+                if (ports.find(sync_port) != ports.end()){ //check if id is taken
+                    reply->set_msg("Error: Port taken.");
+                    return Status::OK;
+                } 
+                ports[sync_port] = true;
+                if (sync_ids.find(sync_id) != sync_ids.end()){ //check if id is taken
+                    reply->set_msg("Error: Sync ID taken.");
+                    return Status::OK;
+                }
+                sync_ids[sync_id] = true; 
+                sync_table[sync_index].server_id = sync_id;
+                sync_table[sync_index].port_num = sync_port;
+                sync_table[sync_index].active = true;
+                reply->set_msg("Sync ID:" + sync_id + " connected to cluster #" + std::to_string(sync_index + 1));
+                sync_index++;
+            } else {
+                reply->set_msg("Error: Clusters full.");
+            }    
+        } else if (requester == 50){
+            std::string cli_id = request->id();
+            std::string sync_port = get_sync_port(stoi(cli_id));
+            if (!sync_port.empty()){
+                reply->set_msg(sync_port);
+            } else {
+                reply->set_msg("Error: Sync port not found.");
+            }
+        } else if (requester == 51){
+            std::string cli_id = request->id();
+            if (client_ids.find(cli_id) != client_ids.end()){
+                reply->set_msg(std::to_string(client_ids[cli_id]));
+            } else {
+                reply->set_msg("Error: No such user.");
+            }
         } else if (requester == 99){
             std::string slave_port = request->port_number();
             for (int i = 0; i < slave_table.size(); i++){
@@ -251,16 +307,29 @@ void RunCoordServer(std::string port_no) {
 
 int main(int argc, char** argv) {
   
-  std::string port = "8000";
-  int opt = 0;
-  while ((opt = getopt(argc, argv, "p:")) != -1){
-    switch(opt) {
-      case 'p':
-          port = optarg;break;
-      default:
-	  std::cerr << "Invalid Command Line Argument\n";
+    std::string port = "8000";
+    int opt = 0;
+    while ((opt = getopt(argc, argv, "p:")) != -1){
+        switch(opt) {
+            case 'p':
+                port = optarg;break;
+            default:
+            std::cerr << "Invalid Command Line Argument\n";
+        }
     }
-  }
-  RunCoordServer(port);
-  return 0;
+
+    std::string f2server_file = "fsync_to_server_file0.txt";
+    std::ofstream fsync_to_server_file1(f2server_file, std::ios::trunc|std::ios::out|std::ios::in);
+    fsync_to_server_file1.close();
+    f2server_file = "fsync_to_server_file1.txt";
+    std::ofstream fsync_to_server_file2(f2server_file, std::ios::trunc|std::ios::out|std::ios::in);
+    fsync_to_server_file2.close();
+    f2server_file = "fsync_to_server_file2.txt";
+    std::ofstream fsync_to_server_file3(f2server_file, std::ios::trunc|std::ios::out|std::ios::in);
+    fsync_to_server_file3.close();
+
+    mkdir("master", 0777);
+    mkdir("slave", 0777);
+    RunCoordServer(port);
+    return 0;
 }
